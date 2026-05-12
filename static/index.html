@@ -1020,6 +1020,8 @@ input:focus, textarea:focus, select:focus {
         <div class="spacer"></div>
         <button class="header-btn" onclick="toggleConvDropdown()" title="历史对话">📋<span class="header-btn-text"> 对话列表</span></button>
         <button class="header-btn" onclick="newConversation()" title="新建对话">✨<span class="header-btn-text"> 新对话</span></button>
+        <button class="header-btn" onclick="exportChat()" title="导出对话">📥<span class="header-btn-text"> 导出</span></button>
+        <button class="header-btn" onclick="shareChat()" title="分享对话">🔗<span class="header-btn-text"> 分享</span></button>
         <button class="header-btn" onclick="clearChat()" title="清空当前">🗑<span class="header-btn-text"> 清空</span></button>
       </div>
 
@@ -1705,6 +1707,55 @@ async function clearChat() {
     refreshConvList();
   } catch (e) {
     showToast('清空失败', 'error');
+  }
+}
+
+/* ═══════════════════════════════════════════
+   Export & Share
+═══════════════════════════════════════════ */
+
+async function exportChat() {
+  if (!currentPersona || !currentConversationId) {
+    showToast('请先选择对话', 'error');
+    return;
+  }
+  try {
+    const url = `/api/export/${currentPersona.id}?conversation_id=${currentConversationId}`;
+    const res = await api(url);
+    const text = await res.text();
+    // 触发下载
+    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `nous_${currentPersona.name || currentPersona.id}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast('导出成功 📥', 'success');
+  } catch(e) {
+    showToast('导出失败', 'error');
+  }
+}
+
+async function shareChat() {
+  if (!currentPersona || !currentConversationId) {
+    showToast('请先选择对话', 'error');
+    return;
+  }
+  try {
+    const res = await api(`/api/share/${currentPersona.id}?conversation_id=${currentConversationId}`, {
+      method: 'POST'
+    });
+    const data = await res.json();
+    const shareUrl = `${location.origin}/s/${data.share_id}`;
+    // 尝试复制到剪贴板
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(shareUrl);
+      showToast(`分享链接已复制！\n${data.message_count}条消息，7天后过期`, 'success');
+    } else {
+      prompt('分享链接（手动复制）：', shareUrl);
+    }
+  } catch(e) {
+    showToast('分享失败', 'error');
   }
 }
 

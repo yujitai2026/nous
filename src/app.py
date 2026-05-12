@@ -7,7 +7,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Query
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, PlainTextResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -19,6 +19,7 @@ from .profile import ProfileManager
 from .personas import PersonaManager
 from .memory import MemoryManager
 from .chat import ChatManager
+from .share import ShareManager, SHARE_EXPIRE_DAYS
 
 # ─── 日志 ───
 logging.basicConfig(
@@ -40,6 +41,7 @@ profile_mgr = ProfileManager(store)
 persona_mgr = PersonaManager(str(BASE_DIR / "personas"), store=store)
 memory_mgr = MemoryManager(store, llm)
 chat_mgr = ChatManager(store, llm, persona_mgr, profile_mgr, memory_mgr)
+share_mgr = ShareManager(store, chat_mgr, persona_mgr)
 
 
 # ─── App ───
@@ -367,8 +369,136 @@ async def health():
 
 
 # ═══════════════════════════════════════════
-#  7. 静态文件
+#  7. 导出 & 分享 API
 # ═══════════════════════════════════════════
+
+@app.get("/api/export/{persona_id}")
+async def export_conversation(
+    persona_id: str,
+    conversation_id: str = Query(None),
+    username: str = Depends(get_current_user),
+):
+    """导出对话为 Markdown"""
+    md = await share_mgr.export_markdown(username, persona_id, conversation_id)
+    return PlainTextResponse(md, media_type="text/markdown; charset=utf-8", headers={
+        "Content-Disposition": f'attachment; filename="nous_{persona_id}.md"'
+    })
+
+
+@app.post("/api/share/{persona_id}")
+async def create_share(
+    persona_id: str,
+    conversation_id: str = Query(None),
+    username: str = Depends(get_current_user),
+):
+    """创建分享链接"""
+    try:
+        result = await share_mgr.create_share(username, persona_id, conversation_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"detail": str(e)})
+
+
+@app.get("/s/{share_id}")
+async def view_share(share_id: str):
+    """查看分享页面（免登录）"""
+    data = share_mgr.get_share(share_id)
+    if not data:
+        return HTMLResponse(SHARE_EXPIRED_HTML, status_code=404)
+    return HTMLResponse(render_share_page(data))
+
+
+# ═══════════════════════════════════════════
+#  8. 静态文件
+# ═══════════════════════════════════════════
+
+SHARE_EXPIRED_HTML = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>分享已过期</title>
+<style>body{background:#0a0a1a;color:#e0e0e0;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:system-ui}
+.box{text-align:center;padding:40px}.box h2{font-size:48px;margin:0}.box p{color:#888;margin-top:16px}</style>
+</head><body><div class="box"><h2>⏳</h2><p>该分享链接已过期或不存在</p></div></body></html>"""
+
+
+def render_share_page(data: dict) -> str:
+    """渲染分享对话页面"""
+    import html as html_mod
+    persona_name = html_mod.escape(data.get("persona_name", "AI"))
+    created = data.get("created_at", "")[:10]
+    expire = data.get("expire_at", "")[:10]
+    msg_count = data.get("message_count", 0)
+    username = html_mod.escape(data.get("username", "用户"))
+
+    messages_html = []
+    for msg in data.get("messages", []):
+        role = msg.get("role", "user")
+        content = html_mod.escape(msg.get("content", ""))
+        # 保留换行
+        content = content.replace("\n", "<br>")
+        ts = msg.get("timestamp", "")
+        if ts:
+            try:
+                from datetime import datetime as dt
+                t = dt.fromisoformat(ts.replace("Z", "+00:00"))
+                time_str = t.strftime("%m-%d %H:%M")
+            except Exception:
+                time_str = ts[:16]
+        else:
+            time_str = ""
+
+        if role == "user":
+            cls = "msg-user"
+            label = f'🧑 {username}'
+        else:
+            cls = "msg-bot"
+            label = f'🤖 {persona_name}'
+
+        messages_html.append(f'''<div class="msg {cls}">
+<div class="msg-header"><span class="msg-name">{label}</span><span class="msg-time">{time_str}</span></div>
+<div class="msg-body">{content}</div></div>''')
+
+    msgs_joined = "\n".join(messages_html)
+
+    return f'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>与{persona_name}的对话 — 神智 Nous</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{background:#0a0a1a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-serif;line-height:1.6}}
+.container{{max-width:720px;margin:0 auto;padding:20px 16px;padding-top:env(safe-area-inset-top,20px)}}
+.header{{text-align:center;padding:24px 0;border-bottom:1px solid #1e1e3a;margin-bottom:24px}}
+.header h1{{font-size:20px;color:#c4b5fd;margin-bottom:8px}}
+.header .meta{{font-size:13px;color:#666}}
+.msg{{margin-bottom:16px;padding:14px 16px;border-radius:12px;border:1px solid #1e1e3a}}
+.msg-user{{background:#111128}}
+.msg-bot{{background:#0f1a2e}}
+.msg-header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}}
+.msg-name{{font-weight:600;font-size:14px;color:#a78bfa}}
+.msg-user .msg-name{{color:#60a5fa}}
+.msg-time{{font-size:12px;color:#555}}
+.msg-body{{font-size:15px;line-height:1.7;color:#d0d0d0}}
+.footer{{text-align:center;padding:24px 0;color:#444;font-size:12px;border-top:1px solid #1e1e3a;margin-top:24px}}
+.badge{{display:inline-block;background:#1e1e3a;padding:4px 12px;border-radius:20px;font-size:12px;color:#888;margin:0 4px}}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+  <h1>🧠 与{persona_name}的对话</h1>
+  <div class="meta">
+    <span class="badge">📝 {msg_count} 条消息</span>
+    <span class="badge">📅 {created}</span>
+    <span class="badge">⏳ {expire} 过期</span>
+  </div>
+</div>
+{msgs_joined}
+<div class="footer">由 <b>神智 Nous</b> 生成 · 分享链接 {SHARE_EXPIRE_DAYS} 天后自动失效</div>
+</div>
+</body>
+</html>'''
 
 static_dir = BASE_DIR / "static"
 if static_dir.exists():
