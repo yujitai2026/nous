@@ -379,5 +379,5 @@ if static_dir.exists():
 async def index():
     index_path = static_dir / "index.html"
     if index_path.exists():
-        return FileResponse(str(index_path))
+        return FileResponse(str(index_path), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     return {"message": "Nous 神智 API", "docs": "/docs"}
