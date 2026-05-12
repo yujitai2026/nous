@@ -872,7 +872,8 @@ input:focus, textarea:focus, select:focus {
     position: fixed;
     left: -280px;
     top: 0;
-    padding-top: 114px;
+    padding-top: 80px;
+    padding-top: calc(60px + env(safe-area-inset-top, 20px));
     bottom: 0;
     z-index: 150;
     width: 280px;
@@ -924,9 +925,10 @@ input:focus, textarea:focus, select:focus {
   .conv-item-title { font-size: 15px; }
   .conv-item-delete { width: 32px; height: 32px; font-size: 16px; }
 
-  /* Top bar — iPhone safe area: 59pt for Dynamic Island devices */
+  /* Top bar — progressive: 20px fallback, env() for iOS safe area */
   .top-bar {
-    padding: 54px 12px 10px;
+    padding: 20px 12px 10px;
+    padding-top: env(safe-area-inset-top, 20px);
     gap: 8px;
     min-height: 60px;
   }
