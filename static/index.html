@@ -543,6 +543,33 @@ input:focus, textarea:focus, select:focus {
 }
 .overlay.open { opacity: 1; pointer-events: auto; }
 
+/* Onboarding Modal */
+.onboarding-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.7); z-index: 300;
+  display: none; align-items: center; justify-content: center;
+  animation: fadeIn 0.3s;
+}
+.onboarding-overlay.open { display: flex; }
+.onboarding-modal {
+  background: var(--surface); border-radius: 20px;
+  width: min(420px, 90vw); max-height: 85vh; overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  border: 1px solid var(--border);
+}
+.onboarding-header {
+  text-align: center; padding: 28px 24px 12px;
+}
+.onboarding-emoji { font-size: 48px; display: block; margin-bottom: 8px; }
+.onboarding-header h2 { margin: 0 0 6px; font-size: 22px; }
+.onboarding-header p { margin: 0; color: var(--muted); font-size: 14px; }
+.onboarding-body { padding: 8px 24px 16px; }
+.onboarding-footer {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 12px 24px 24px;
+}
+.onboarding-footer .btn { flex: 1; justify-content: center; }
+
 /* Toast */
 .toast {
   position: fixed;
@@ -655,6 +682,53 @@ input:focus, textarea:focus, select:focus {
           oninput="autoResize(this)"></textarea>
         <button class="send-btn" id="send-btn" onclick="sendMessage()" title="发送">➤</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ Onboarding Modal ═══════ -->
+<div class="onboarding-overlay" id="onboarding-overlay">
+  <div class="onboarding-modal">
+    <div class="onboarding-header">
+      <span class="onboarding-emoji">🎉</span>
+      <h2>欢迎加入神智！</h2>
+      <p>填写一下你的档案，AI人设们就能更懂你啦</p>
+    </div>
+    <div class="onboarding-body">
+      <div class="form-group">
+        <label>年龄</label>
+        <input type="number" id="ob-age" placeholder="你的年龄" min="1" max="150">
+      </div>
+      <div class="form-group">
+        <label>性别</label>
+        <select id="ob-gender">
+          <option value="">不愿透露</option>
+          <option value="男">男</option>
+          <option value="女">女</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>职业</label>
+        <input type="text" id="ob-occupation" placeholder="你的职业">
+      </div>
+      <div class="form-group">
+        <label>兴趣爱好</label>
+        <div class="tags" id="ob-interests-tags"></div>
+        <div class="tag-input" style="margin-top:8px;">
+          <input type="text" id="ob-interest-input" placeholder="输入兴趣，回车添加"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addObInterest()}">
+          <button class="btn btn-ghost btn-sm" onclick="addObInterest()">+</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>个人简介</label>
+        <textarea id="ob-bio" placeholder="介绍一下自己..." rows="2"></textarea>
+      </div>
+    </div>
+    <div class="onboarding-footer">
+      <button class="btn btn-ghost" onclick="closeOnboarding()">跳过，以后再说</button>
+      <button class="btn btn-primary" onclick="saveOnboardingProfile()">✨ 保存并开始</button>
     </div>
   </div>
 </div>
@@ -785,7 +859,12 @@ async function doAuth() {
     username = data.username;
     localStorage.setItem('nous_token', token);
     localStorage.setItem('nous_username', username);
-    enterApp();
+    if (isRegistering) {
+      await enterApp();
+      showOnboardingProfile();
+    } else {
+      await enterApp();
+    }
   } catch (e) {
     errEl.textContent = '网络连接失败';
   }
@@ -1067,6 +1146,67 @@ async function saveProfile() {
 }
 
 /* ═══════════════════════════════════════════
+   Onboarding Profile
+   ═══════════════════════════════════════════ */
+let obInterests = [];
+
+function showOnboardingProfile() {
+  obInterests = [];
+  document.getElementById('ob-interests-tags').innerHTML = '';
+  document.getElementById('onboarding-overlay').classList.add('open');
+}
+
+function closeOnboarding() {
+  document.getElementById('onboarding-overlay').classList.remove('open');
+}
+
+function addObInterest() {
+  const inp = document.getElementById('ob-interest-input');
+  const v = inp.value.trim();
+  if (!v || obInterests.includes(v)) { inp.value = ''; return; }
+  obInterests.push(v);
+  inp.value = '';
+  renderObTags();
+}
+
+function removeObInterest(i) {
+  obInterests.splice(i, 1);
+  renderObTags();
+}
+
+function renderObTags() {
+  document.getElementById('ob-interests-tags').innerHTML = obInterests.map((t, i) =>
+    `<span class="tag">${escapeHtml(t)} <span class="tag-remove" onclick="removeObInterest(${i})">×</span></span>`
+  ).join('');
+}
+
+async function saveOnboardingProfile() {
+  const data = {
+    age: parseInt(document.getElementById('ob-age').value) || null,
+    gender: document.getElementById('ob-gender').value || null,
+    occupation: document.getElementById('ob-occupation').value.trim() || null,
+    interests: obInterests.length ? obInterests : null,
+    bio: document.getElementById('ob-bio').value.trim() || null
+  };
+  Object.keys(data).forEach(k => data[k] == null && delete data[k]);
+  if (Object.keys(data).length === 0) {
+    closeOnboarding();
+    showToast('档案稍后可在设置中填写 📝');
+    return;
+  }
+  try {
+    await api('/api/profile', { method: 'PUT', body: JSON.stringify(data) });
+    closeOnboarding();
+    showToast('档案保存成功，开始聊天吧！ 🎉', 'success');
+    // sync to profile panel
+    await loadProfile();
+  } catch (e) {
+    showToast('保存失败，稍后可在设置中重试', 'error');
+    closeOnboarding();
+  }
+}
+
+/* ═══════════════════════════════════════════
    Memory
    ═══════════════════════════════════════════ */
 async function loadMemory() {
@@ -1152,8 +1292,10 @@ function toggleSidebar() {
    Helpers
    ═══════════════════════════════════════════ */
 function escapeHtml(s) {
-  if (!s) return '';
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  if (s === null || s === undefined) return '';
+  if (Array.isArray(s)) return s.map(escapeHtml).join('、');
+  if (typeof s === 'object') return escapeHtml(JSON.stringify(s));
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function escapeAttr(s) {
