@@ -1313,6 +1313,7 @@ async function doAuth() {
 }
 
 function logout() {
+  if (!confirm('确定要退出登录吗？')) return;
   token = '';
   username = '';
   localStorage.removeItem('nous_token');
