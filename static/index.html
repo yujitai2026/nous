@@ -323,6 +323,12 @@ input:focus, textarea:focus, select:focus {
 }
 .msg.user .msg-avatar { background: var(--accent); font-size: 14px; }
 
+.msg-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .msg-bubble {
   padding: 10px 16px;
   border-radius: 16px;
@@ -339,6 +345,73 @@ input:focus, textarea:focus, select:focus {
   background: var(--surface2);
   color: var(--text);
   border-bottom-left-radius: 4px;
+}
+.msg-time {
+  font-size: 11px;
+  color: var(--text3);
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.msg:hover .msg-time, .msg-time.always-show {
+  opacity: 1;
+}
+.msg.user .msg-time { text-align: right; }
+
+/* Markdown in assistant bubbles */
+.msg.assistant .msg-bubble p { margin: 0 0 8px 0; }
+.msg.assistant .msg-bubble p:last-child { margin-bottom: 0; }
+.msg.assistant .msg-bubble ul, .msg.assistant .msg-bubble ol {
+  margin: 4px 0 8px 0; padding-left: 20px;
+}
+.msg.assistant .msg-bubble li { margin-bottom: 2px; }
+.msg.assistant .msg-bubble code {
+  background: rgba(124,91,245,0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 13px;
+  font-family: 'Menlo', 'Consolas', monospace;
+}
+.msg.assistant .msg-bubble pre {
+  background: rgba(0,0,0,0.3);
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.msg.assistant .msg-bubble pre code {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.msg.assistant .msg-bubble blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 8px 0;
+  padding: 4px 12px;
+  color: var(--text2);
+}
+.msg.assistant .msg-bubble h1, .msg.assistant .msg-bubble h2,
+.msg.assistant .msg-bubble h3, .msg.assistant .msg-bubble h4 {
+  margin: 12px 0 6px 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.msg.assistant .msg-bubble a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.msg.assistant .msg-bubble table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.msg.assistant .msg-bubble th, .msg.assistant .msg-bubble td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+.msg.assistant .msg-bubble th {
+  background: rgba(124,91,245,0.1);
 }
 
 /* Welcome Screen */
@@ -359,17 +432,30 @@ input:focus, textarea:focus, select:focus {
 .typing-indicator {
   display: flex;
   gap: 4px;
-  padding: 12px 16px;
+  padding: 4px 0;
   align-items: center;
 }
-.typing-indicator span {
+.typing-indicator .dots {
+  display: flex; gap: 4px; align-items: center;
+}
+.typing-indicator .dots span {
   width: 6px; height: 6px;
   background: var(--text3);
   border-radius: 50%;
   animation: pulse 1.4s ease-in-out infinite;
 }
-.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+.typing-indicator .dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator .dots span:nth-child(3) { animation-delay: 0.4s; }
+.typing-indicator .typing-text {
+  font-size: 12px;
+  color: var(--text3);
+  margin-left: 6px;
+  animation: fadeInOut 2s ease-in-out infinite;
+}
+@keyframes fadeInOut {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
 
 /* Input Bar */
 .chat-input-bar {
@@ -687,6 +773,7 @@ input:focus, textarea:focus, select:focus {
   .mobile-menu-btn { display: none !important; }
 }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 </head>
 <body>
 
@@ -1172,7 +1259,7 @@ async function loadHistory() {
     const messages = data.messages || data || [];
     // Update conversation_id if returned
     if (data.conversation_id) currentConversationId = data.conversation_id;
-    messages.forEach(m => appendMessage(m.role, m.content, false));
+    messages.forEach(m => appendMessage(m.role, m.content, false, m.timestamp));
     if (messages.length === 0) {
       appendMessage('assistant', currentPersona.greeting || `你好！我是${currentPersona.name}，有什么想聊的？`, false);
     }
@@ -1182,15 +1269,20 @@ async function loadHistory() {
   }
 }
 
-function appendMessage(role, content, animate = true) {
+function appendMessage(role, content, animate = true, timestamp = null) {
   const el = document.getElementById('chat-messages');
   const avatar = role === 'user' ? '😊' : (currentPersona?.avatar || '🧠');
   const avatarBg = role === 'user' ? '' : `style="background:${currentPersona?.avatar_bg || currentPersona?.color || '#7c5bf5'}"`;
   const div = document.createElement('div');
   div.className = `msg ${role}` + (animate ? ' fade-in' : '');
+  const rendered = role === 'assistant' ? renderMarkdown(content) : escapeHtml(content).replace(/\n/g, '<br>');
+  const timeStr = timestamp ? formatMsgTime(timestamp) : formatMsgTime(new Date().toISOString());
   div.innerHTML = `
     <div class="msg-avatar" ${avatarBg}>${avatar}</div>
-    <div class="msg-bubble">${escapeHtml(content)}</div>
+    <div class="msg-content">
+      <div class="msg-bubble">${rendered}</div>
+      <div class="msg-time">${timeStr}</div>
+    </div>
   `;
   el.appendChild(div);
   return div;
@@ -1203,7 +1295,14 @@ function showTyping() {
   div.id = 'typing-msg';
   div.innerHTML = `
     <div class="msg-avatar" style="background:${currentPersona?.avatar_bg || currentPersona?.color || '#7c5bf5'}">${currentPersona?.avatar || '🧠'}</div>
-    <div class="msg-bubble"><div class="typing-indicator"><span></span><span></span><span></span></div></div>
+    <div class="msg-content">
+      <div class="msg-bubble">
+        <div class="typing-indicator">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <span class="typing-text">正在思考…</span>
+        </div>
+      </div>
+    </div>
   `;
   el.appendChild(div);
   scrollToBottom();
@@ -1254,6 +1353,7 @@ async function sendMessage() {
     removeTyping();
     const msgDiv = appendMessage('assistant', '');
     const bubble = msgDiv.querySelector('.msg-bubble');
+    const timeEl = msgDiv.querySelector('.msg-time');
     let fullText = '';
 
     const reader = res.body.getReader();
@@ -1270,16 +1370,20 @@ async function sendMessage() {
           const data = JSON.parse(line.slice(6));
           if (data.type === 'delta') {
             fullText += data.content;
-            bubble.innerHTML = formatContent(fullText);
+            bubble.innerHTML = renderMarkdown(fullText);
             scrollToBottom();
           } else if (data.type === 'done') {
+            // Final render with full markdown
+            bubble.innerHTML = renderMarkdown(fullText);
+            // Update timestamp to now
+            timeEl.textContent = formatMsgTime(new Date().toISOString());
             // Update conversation_id from server
             if (data.conversation_id) currentConversationId = data.conversation_id;
             // Refresh conversation list title/count in background
             refreshConvList();
           } else if (data.type === 'error') {
             fullText += '\n⚠️ ' + data.message;
-            bubble.innerHTML = formatContent(fullText);
+            bubble.innerHTML = renderMarkdown(fullText);
           }
         } catch (e) {}
       }
@@ -1532,13 +1636,46 @@ function escapeAttr(s) {
 }
 
 function formatContent(text) {
-  // Simple markdown: bold, italic, code, newlines
+  // Legacy fallback — kept for compatibility
+  return renderMarkdown(text);
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  try {
+    // Configure marked for chat-friendly output
+    if (typeof marked !== 'undefined') {
+      marked.setOptions({
+        breaks: true,       // GFM line breaks
+        gfm: true,          // GitHub Flavored Markdown
+        headerIds: false,
+        mangle: false
+      });
+      return marked.parse(text);
+    }
+  } catch(e) {}
+  // Fallback: simple formatting
   let html = escapeHtml(text);
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
   html = html.replace(/`(.+?)`/g, '<code style="background:rgba(124,91,245,0.2);padding:1px 5px;border-radius:3px;">$1</code>');
   html = html.replace(/\n/g, '<br>');
   return html;
+}
+
+function formatMsgTime(isoStr) {
+  try {
+    const d = new Date(isoStr);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const pad = n => String(n).padStart(2, '0');
+    const time = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    if (msgDay.getTime() === today.getTime()) return time;
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    if (msgDay.getTime() === yesterday.getTime()) return '昨天 ' + time;
+    return (d.getMonth()+1) + '/' + d.getDate() + ' ' + time;
+  } catch(e) { return ''; }
 }
 
 function autoResize(el) {
