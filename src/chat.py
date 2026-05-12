@@ -110,8 +110,8 @@ class ChatManager:
         流式回复生成器
         yields: (event_type, data_dict)
         """
-        # 1. 加载人设
-        persona = self.persona_mgr.get(persona_id)
+        # 1. 加载人设（含用户自定义人设）
+        persona = self.persona_mgr.get(persona_id, username)
         if not persona:
             yield ("error", {"message": f"人设不存在: {persona_id}"})
             return
@@ -168,7 +168,7 @@ class ChatManager:
         memory_extracted = round_count > 0 and round_count % 5 == 0
 
         if memory_extracted:
-            persona_name = self.persona_mgr.get_name(persona_id)
+            persona_name = self.persona_mgr.get_name(persona_id, username)
             await self.memory_mgr.maybe_extract(
                 username, persona_id, persona_name, round_count
             )

@@ -37,7 +37,7 @@ store = FileStore(str(BASE_DIR / "data"))
 llm = LLMClient()
 auth_mgr = AuthManager(store)
 profile_mgr = ProfileManager(store)
-persona_mgr = PersonaManager(str(BASE_DIR / "personas"))
+persona_mgr = PersonaManager(str(BASE_DIR / "personas"), store=store)
 memory_mgr = MemoryManager(store, llm)
 chat_mgr = ChatManager(store, llm, persona_mgr, profile_mgr, memory_mgr)
 
@@ -101,6 +101,26 @@ class MemoryUpdateRequest(BaseModel):
     value: str
 
 
+class PersonaCreateRequest(BaseModel):
+    name: str
+    emoji: str = "🤖"
+    tagline: str = ""
+    color: str = "#7c5bf5"
+    avatar_bg: str = ""
+    greeting: str = "你好！有什么想聊的？"
+    system_prompt: str = "你是一个友好的AI助手，请用中文回复。"
+
+
+class PersonaUpdateRequest(BaseModel):
+    name: str | None = None
+    emoji: str | None = None
+    tagline: str | None = None
+    color: str | None = None
+    avatar_bg: str | None = None
+    greeting: str | None = None
+    system_prompt: str | None = None
+
+
 # ═══════════════════════════════════════════
 #  1. 认证 API
 # ═══════════════════════════════════════════
@@ -159,7 +179,52 @@ async def update_profile(
 
 @app.get("/api/personas")
 async def get_personas(username: str = Depends(get_current_user)):
-    return persona_mgr.get_all()
+    return await persona_mgr.get_all(username)
+
+
+@app.post("/api/personas/custom")
+async def create_custom_persona(
+    req: PersonaCreateRequest, username: str = Depends(get_current_user)
+):
+    """创建自定义人设"""
+    persona = await persona_mgr.create_custom(username, req.model_dump())
+    return persona
+
+
+@app.put("/api/personas/custom/{persona_id}")
+async def update_custom_persona(
+    persona_id: str,
+    req: PersonaUpdateRequest,
+    username: str = Depends(get_current_user),
+):
+    """更新自定义人设"""
+    data = req.model_dump(exclude_none=True)
+    updated = await persona_mgr.update_custom(username, persona_id, data)
+    if not updated:
+        raise HTTPException(status_code=404, detail={"detail": "人设不存在或无权修改"})
+    return updated
+
+
+@app.delete("/api/personas/custom/{persona_id}")
+async def delete_custom_persona(
+    persona_id: str, username: str = Depends(get_current_user)
+):
+    """删除自定义人设"""
+    deleted = await persona_mgr.delete_custom(username, persona_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail={"detail": "人设不存在或无权删除"})
+    return {"message": "人设已删除", "persona_id": persona_id}
+
+
+@app.get("/api/personas/custom/{persona_id}")
+async def get_custom_persona_detail(
+    persona_id: str, username: str = Depends(get_current_user)
+):
+    """获取自定义人设详情（含 system_prompt，用于编辑）"""
+    persona = persona_mgr.get(persona_id, username)
+    if not persona or persona_id not in (persona.get("id", "")):
+        raise HTTPException(status_code=404, detail={"detail": "人设不存在"})
+    return persona
 
 
 # ═══════════════════════════════════════════

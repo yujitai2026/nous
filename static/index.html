@@ -731,6 +731,101 @@ input:focus, textarea:focus, select:focus {
 }
 .onboarding-footer .btn { flex: 1; justify-content: center; }
 
+/* Persona Editor Modal */
+.persona-editor-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.7); z-index: 300;
+  display: none; align-items: center; justify-content: center;
+  animation: fadeIn 0.3s;
+}
+.persona-editor-overlay.open { display: flex; }
+.persona-editor-modal {
+  background: var(--surface); border-radius: 20px;
+  width: min(480px, 92vw); max-height: 85vh; overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  border: 1px solid var(--border);
+}
+.persona-editor-header {
+  text-align: center; padding: 24px 24px 12px;
+}
+.persona-editor-header h2 { font-size: 20px; margin: 0; }
+.persona-editor-header p { color: var(--text3); font-size: 13px; margin-top: 4px; }
+.persona-editor-body { padding: 8px 24px 16px; }
+.persona-editor-body .form-group { margin-bottom: 14px; }
+.persona-editor-body .form-row {
+  display: flex; gap: 12px;
+}
+.persona-editor-body .form-row .form-group { flex: 1; }
+.persona-editor-body textarea { min-height: 80px; resize: vertical; }
+.emoji-picker-mini {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;
+}
+.emoji-picker-mini span {
+  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  font-size: 20px; border-radius: 8px; cursor: pointer;
+  background: var(--surface2); border: 2px solid transparent; transition: var(--transition);
+}
+.emoji-picker-mini span:hover { border-color: var(--accent); }
+.emoji-picker-mini span.selected { border-color: var(--accent); background: rgba(124,91,245,0.2); }
+.color-picker-row {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;
+}
+.color-picker-row span {
+  width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
+  border: 2px solid transparent; transition: var(--transition);
+}
+.color-picker-row span:hover { border-color: var(--text); }
+.color-picker-row span.selected { border-color: white; box-shadow: 0 0 0 2px var(--accent); }
+.persona-editor-footer {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 12px 24px 24px;
+}
+.persona-editor-footer .btn { flex: 1; justify-content: center; }
+.persona-editor-preview {
+  background: var(--bg2); border-radius: var(--radius); padding: 16px;
+  margin-top: 8px; display: flex; align-items: center; gap: 12px;
+}
+.persona-editor-preview .preview-avatar {
+  width: 48px; height: 48px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 24px;
+}
+.persona-editor-preview .preview-info .name { font-weight: 600; font-size: 15px; }
+.persona-editor-preview .preview-info .desc { font-size: 12px; color: var(--text3); }
+
+/* Custom persona card actions */
+.persona-card { position: relative; }
+.persona-card-actions {
+  display: none;
+  position: absolute; top: 8px; right: 8px;
+  gap: 2px;
+}
+.persona-card:hover .persona-card-actions { display: flex; }
+.persona-card-actions button {
+  width: 24px; height: 24px; border-radius: 50%; border: none;
+  background: rgba(0,0,0,0.4); color: var(--text2);
+  font-size: 11px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center;
+  transition: var(--transition);
+}
+.persona-card-actions button:hover { background: var(--accent); color: white; }
+.persona-card-actions button.del:hover { background: var(--danger); }
+
+/* Create persona card */
+.persona-card.create-card {
+  border: 2px dashed var(--border);
+  justify-content: center;
+  gap: 8px; opacity: 0.7;
+}
+.persona-card.create-card:hover {
+  opacity: 1; border-color: var(--accent);
+  background: rgba(124,91,245,0.08);
+}
+.create-card-icon {
+  width: 44px; height: 44px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; background: var(--surface2); color: var(--accent);
+}
+
 /* Toast */
 .toast {
   position: fixed;
@@ -907,6 +1002,81 @@ input:focus, textarea:focus, select:focus {
 </div>
 
 <!-- ═══════ Slide Panels ═══════ -->
+
+<!-- Persona Editor Modal -->
+<div class="persona-editor-overlay" id="persona-editor-overlay">
+  <div class="persona-editor-modal">
+    <div class="persona-editor-header">
+      <h2 id="pe-title">✨ 创建人设</h2>
+      <p id="pe-subtitle">打造你的专属AI伙伴</p>
+    </div>
+    <div class="persona-editor-body">
+      <div class="form-group">
+        <label>人设名称 *</label>
+        <input type="text" id="pe-name" placeholder="给TA起个名字" maxlength="20">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>头像表情</label>
+          <div class="emoji-picker-mini" id="pe-emoji-picker">
+            <span onclick="pickEmoji(this)" data-emoji="🤖">🤖</span>
+            <span onclick="pickEmoji(this)" data-emoji="🦊">🦊</span>
+            <span onclick="pickEmoji(this)" data-emoji="🐱">🐱</span>
+            <span onclick="pickEmoji(this)" data-emoji="🧙">🧙</span>
+            <span onclick="pickEmoji(this)" data-emoji="👩‍🔬">👩‍🔬</span>
+            <span onclick="pickEmoji(this)" data-emoji="🎭">🎭</span>
+            <span onclick="pickEmoji(this)" data-emoji="🌸">🌸</span>
+            <span onclick="pickEmoji(this)" data-emoji="⚡">⚡</span>
+            <span onclick="pickEmoji(this)" data-emoji="🎵">🎵</span>
+            <span onclick="pickEmoji(this)" data-emoji="📚">📚</span>
+            <span onclick="pickEmoji(this)" data-emoji="🎮">🎮</span>
+            <span onclick="pickEmoji(this)" data-emoji="💡">💡</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>主题色</label>
+          <div class="color-picker-row" id="pe-color-picker">
+            <span onclick="pickColor(this)" data-color="#7c5bf5" style="background:#7c5bf5"></span>
+            <span onclick="pickColor(this)" data-color="#f472b6" style="background:#f472b6"></span>
+            <span onclick="pickColor(this)" data-color="#34d399" style="background:#34d399"></span>
+            <span onclick="pickColor(this)" data-color="#fbbf24" style="background:#fbbf24"></span>
+            <span onclick="pickColor(this)" data-color="#60a5fa" style="background:#60a5fa"></span>
+            <span onclick="pickColor(this)" data-color="#f87171" style="background:#f87171"></span>
+            <span onclick="pickColor(this)" data-color="#a78bfa" style="background:#a78bfa"></span>
+            <span onclick="pickColor(this)" data-color="#fb923c" style="background:#fb923c"></span>
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>一句话简介</label>
+        <input type="text" id="pe-tagline" placeholder="TA的特点或专长" maxlength="50">
+      </div>
+      <div class="form-group">
+        <label>开场白</label>
+        <textarea id="pe-greeting" placeholder="选中TA后第一句话说什么？" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label>性格设定 (System Prompt) *</label>
+        <textarea id="pe-system-prompt" placeholder="描述TA的性格、说话风格、擅长的领域...&#10;&#10;例如：你是一个温柔的心理咨询师，善于倾听，会用温暖的语言回应对方的情绪。" rows="5"></textarea>
+      </div>
+      <div class="form-group">
+        <label>预览效果</label>
+        <div class="persona-editor-preview" id="pe-preview">
+          <div class="preview-avatar" id="pe-preview-avatar" style="background:#7c5bf5">🤖</div>
+          <div class="preview-info">
+            <div class="name" id="pe-preview-name">新人设</div>
+            <div class="desc" id="pe-preview-desc">一句话简介</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="persona-editor-footer">
+      <button class="btn btn-ghost" onclick="closePersonaEditor()">取消</button>
+      <button class="btn btn-primary" id="pe-save-btn" onclick="savePersona()">✨ 创建</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="overlay" onclick="closePanel()"></div>
 
 <!-- Profile Panel -->
@@ -1102,16 +1272,34 @@ async function loadPersonas() {
 
 function renderPersonaList() {
   const el = document.getElementById('persona-list');
-  el.innerHTML = personas.map(p => `
-    <div class="persona-card ${currentPersona?.id === p.id ? 'active' : ''}"
+  let html = personas.map(p => {
+    const isActive = currentPersona?.id === p.id;
+    const actions = p.is_custom ? `
+      <div class="persona-card-actions">
+        <button onclick="event.stopPropagation();openPersonaEditor('${p.id}')" title="编辑">✏️</button>
+        <button class="del" onclick="event.stopPropagation();deletePersona('${p.id}')" title="删除">🗑</button>
+      </div>` : '';
+    return `
+    <div class="persona-card ${isActive ? 'active' : ''}"
          onclick="selectPersona('${p.id}')">
+      ${actions}
       <div class="persona-avatar" style="background:${p.avatar_bg || p.color}">${p.avatar}</div>
       <div class="persona-info">
-        <div class="name">${p.name}</div>
-        <div class="desc">${p.description}</div>
+        <div class="name">${escapeHtml(p.name)}</div>
+        <div class="desc">${escapeHtml(p.description)}</div>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
+  // Add create card at the end
+  html += `
+    <div class="persona-card create-card" onclick="openPersonaEditor()">
+      <div class="create-card-icon">➕</div>
+      <div class="persona-info">
+        <div class="name" style="color:var(--accent)">创建人设</div>
+        <div class="desc">打造你的专属AI</div>
+      </div>
+    </div>`;
+  el.innerHTML = html;
 }
 
 async function selectPersona(id) {
@@ -1596,6 +1784,153 @@ async function deleteMemory(pid, key) {
     loadMemory();
   } catch (e) {
     showToast('删除失败', 'error');
+  }
+}
+
+/* ═══════════════════════════════════════════
+   Custom Persona CRUD
+   ═══════════════════════════════════════════ */
+let editingPersonaId = null;
+let peEmoji = '🤖';
+let peColor = '#7c5bf5';
+
+function openPersonaEditor(personaId = null) {
+  editingPersonaId = personaId;
+  peEmoji = '🤖';
+  peColor = '#7c5bf5';
+  // Reset form
+  document.getElementById('pe-name').value = '';
+  document.getElementById('pe-tagline').value = '';
+  document.getElementById('pe-greeting').value = '';
+  document.getElementById('pe-system-prompt').value = '';
+
+  if (personaId) {
+    // Edit mode — load existing data
+    document.getElementById('pe-title').textContent = '✏️ 编辑人设';
+    document.getElementById('pe-subtitle').textContent = '修改你的AI伙伴设定';
+    document.getElementById('pe-save-btn').textContent = '💾 保存';
+    const p = personas.find(x => x.id === personaId);
+    if (p) {
+      document.getElementById('pe-name').value = p.name || '';
+      document.getElementById('pe-tagline').value = p.description || '';
+      document.getElementById('pe-greeting').value = p.greeting || '';
+      peEmoji = p.avatar || '🤖';
+      peColor = p.color || '#7c5bf5';
+      // Load system_prompt from API
+      api(`/api/personas/custom/${personaId}`).then(r => r.json()).then(data => {
+        document.getElementById('pe-system-prompt').value = data.system_prompt || '';
+      }).catch(() => {});
+    }
+  } else {
+    // Create mode
+    document.getElementById('pe-title').textContent = '✨ 创建人设';
+    document.getElementById('pe-subtitle').textContent = '打造你的专属AI伙伴';
+    document.getElementById('pe-save-btn').textContent = '✨ 创建';
+  }
+
+  // Sync emoji/color pickers
+  syncPickers();
+  updatePreview();
+  document.getElementById('persona-editor-overlay').classList.add('open');
+}
+
+function closePersonaEditor() {
+  document.getElementById('persona-editor-overlay').classList.remove('open');
+  editingPersonaId = null;
+}
+
+function pickEmoji(el) {
+  peEmoji = el.dataset.emoji;
+  syncPickers();
+  updatePreview();
+}
+
+function pickColor(el) {
+  peColor = el.dataset.color;
+  syncPickers();
+  updatePreview();
+}
+
+function syncPickers() {
+  document.querySelectorAll('#pe-emoji-picker span').forEach(s => {
+    s.classList.toggle('selected', s.dataset.emoji === peEmoji);
+  });
+  document.querySelectorAll('#pe-color-picker span').forEach(s => {
+    s.classList.toggle('selected', s.dataset.color === peColor);
+  });
+}
+
+function updatePreview() {
+  const name = document.getElementById('pe-name').value.trim() || '新人设';
+  const tagline = document.getElementById('pe-tagline').value.trim() || '一句话简介';
+  document.getElementById('pe-preview-avatar').textContent = peEmoji;
+  document.getElementById('pe-preview-avatar').style.background = peColor;
+  document.getElementById('pe-preview-name').textContent = name;
+  document.getElementById('pe-preview-desc').textContent = tagline;
+}
+
+// Live preview
+['pe-name', 'pe-tagline'].forEach(id => {
+  document.getElementById(id)?.addEventListener('input', updatePreview);
+});
+
+async function savePersona() {
+  const name = document.getElementById('pe-name').value.trim();
+  const system_prompt = document.getElementById('pe-system-prompt').value.trim();
+  if (!name) { showToast('请输入人设名称', 'error'); return; }
+  if (!system_prompt) { showToast('请输入性格设定', 'error'); return; }
+
+  const data = {
+    name,
+    emoji: peEmoji,
+    tagline: document.getElementById('pe-tagline').value.trim(),
+    color: peColor,
+    avatar_bg: peColor,
+    greeting: document.getElementById('pe-greeting').value.trim() || `你好！我是${name}，有什么想聊的？`,
+    system_prompt
+  };
+
+  try {
+    if (editingPersonaId) {
+      // Update
+      const res = await api(`/api/personas/custom/${editingPersonaId}`, {
+        method: 'PUT', body: JSON.stringify(data)
+      });
+      if (!res.ok) throw new Error('更新失败');
+      showToast('人设已更新 ✓', 'success');
+    } else {
+      // Create
+      const res = await api('/api/personas/custom', {
+        method: 'POST', body: JSON.stringify(data)
+      });
+      if (!res.ok) throw new Error('创建失败');
+      showToast('人设创建成功 🎉', 'success');
+    }
+    closePersonaEditor();
+    await loadPersonas();
+  } catch (e) {
+    showToast(e.message || '操作失败', 'error');
+  }
+}
+
+async function deletePersona(personaId) {
+  const p = personas.find(x => x.id === personaId);
+  if (!confirm(`确定删除人设「${p?.name || personaId}」？\n相关对话和记忆不会被删除。`)) return;
+  try {
+    const res = await api(`/api/personas/custom/${personaId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('删除失败');
+    showToast('人设已删除', 'success');
+    if (currentPersona?.id === personaId) {
+      currentPersona = null;
+      currentConversationId = null;
+      document.getElementById('chat-welcome').classList.remove('hidden');
+      document.getElementById('chat-messages').classList.add('hidden');
+      document.getElementById('chat-input-bar').classList.add('hidden');
+      document.getElementById('chat-header').classList.add('hidden');
+    }
+    await loadPersonas();
+  } catch (e) {
+    showToast(e.message || '删除失败', 'error');
   }
 }
 
