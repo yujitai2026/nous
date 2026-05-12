@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
     logger.info("🧠 Nous 神智 关闭")
 
 
-app = FastAPI(title="Nous 神智", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Nous 神智", version="0.2.0", lifespan=lifespan)
 
 
 # ─── 认证依赖 ───
@@ -82,6 +82,11 @@ class AuthRequest(BaseModel):
 class ChatRequest(BaseModel):
     persona_id: str
     content: str
+    conversation_id: str | None = None
+
+
+class ConversationCreateRequest(BaseModel):
+    title: str = ""
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -163,11 +168,11 @@ async def get_personas(username: str = Depends(get_current_user)):
 
 @app.post("/api/chat/stream")
 async def chat_stream(req: ChatRequest, username: str = Depends(get_current_user)):
-    """流式对话（SSE）"""
+    """流式对话（SSE），支持 conversation_id"""
 
     async def event_generator():
         async for event_type, data in chat_mgr.stream_reply(
-            username, req.persona_id, req.content
+            username, req.persona_id, req.content, req.conversation_id
         ):
             yield f"data: {json.dumps({'type': event_type, **data}, ensure_ascii=False)}\n\n"
 
@@ -184,19 +189,65 @@ async def chat_stream(req: ChatRequest, username: str = Depends(get_current_user
 @app.get("/api/chat/history/{persona_id}")
 async def get_history(
     persona_id: str,
-    limit: int = 30,
+    conversation_id: str = Query(None),
+    limit: int = 50,
     offset: int = 0,
     username: str = Depends(get_current_user),
 ):
-    return await chat_mgr.get_history(username, persona_id, limit, offset)
+    return await chat_mgr.get_history(
+        username, persona_id, conversation_id, limit, offset
+    )
 
 
 @app.delete("/api/chat/history/{persona_id}")
 async def clear_history(
+    persona_id: str,
+    conversation_id: str = Query(None),
+    username: str = Depends(get_current_user),
+):
+    await chat_mgr.clear_history(username, persona_id, conversation_id)
+    return {"message": "对话历史已清空", "memory_preserved": True}
+
+
+# ═══════════════════════════════════════════
+#  4.5 多对话管理 API
+# ═══════════════════════════════════════════
+
+@app.get("/api/conversations/{persona_id}")
+async def list_conversations(
     persona_id: str, username: str = Depends(get_current_user)
 ):
-    await chat_mgr.clear_history(username, persona_id)
-    return {"message": "对话历史已清空", "memory_preserved": True}
+    """列出某人设下的所有对话"""
+    convs = await chat_mgr.conv_mgr.list_conversations(username, persona_id)
+    return {"conversations": convs}
+
+
+@app.post("/api/conversations/{persona_id}")
+async def create_conversation(
+    persona_id: str,
+    req: ConversationCreateRequest,
+    username: str = Depends(get_current_user),
+):
+    """创建新对话"""
+    conv = await chat_mgr.conv_mgr.create_conversation(
+        username, persona_id, req.title
+    )
+    return conv
+
+
+@app.delete("/api/conversations/{persona_id}/{conversation_id}")
+async def delete_conversation(
+    persona_id: str,
+    conversation_id: str,
+    username: str = Depends(get_current_user),
+):
+    """删除对话"""
+    deleted = await chat_mgr.conv_mgr.delete_conversation(
+        username, persona_id, conversation_id
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail={"detail": "对话不存在"})
+    return {"message": "对话已删除"}
 
 
 # ═══════════════════════════════════════════
@@ -247,7 +298,7 @@ async def clear_memory(
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "version": "0.1.0", "name": "Nous 神智"}
+    return {"status": "ok", "version": "0.2.0", "name": "Nous 神智"}
 
 
 # ═══════════════════════════════════════════

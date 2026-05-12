@@ -1,5 +1,5 @@
 """
-Chat — 核心对话模块
+Chat — 核心对话模块（支持多对话）
 """
 import json
 import time
@@ -9,6 +9,7 @@ from .llm import LLMClient
 from .personas import PersonaManager
 from .profile import ProfileManager
 from .memory import MemoryManager
+from .conversation import ConversationManager
 
 logger = logging.getLogger("nous.chat")
 
@@ -34,6 +35,7 @@ class ChatManager:
         self.persona_mgr = persona_mgr
         self.profile_mgr = profile_mgr
         self.memory_mgr = memory_mgr
+        self.conv_mgr = ConversationManager(store)
 
     def _build_system_prompt(
         self, persona: dict, profile: dict, memory: dict
@@ -70,34 +72,40 @@ class ChatManager:
         return system
 
     async def get_history(
-        self, username: str, persona_id: str, limit: int = 30, offset: int = 0
+        self, username: str, persona_id: str, conv_id: str = None,
+        limit: int = 30, offset: int = 0
     ) -> dict:
         """获取对话历史"""
-        path = self.store.messages_path(username, persona_id)
-        messages = await self.store.read_json(path, [])
-        total = len(messages)
-        # offset 从最新往前数
-        if offset > 0:
-            end = max(total - offset, 0)
-        else:
-            end = total
-        start = max(end - limit, 0)
-        return {
-            "messages": messages[start:end],
-            "total": total,
-            "has_more": start > 0,
-        }
+        if conv_id:
+            return await self.conv_mgr.get_messages(
+                username, persona_id, conv_id, limit, offset
+            )
+        # 兼容旧逻辑：获取最新对话
+        conv = await self.conv_mgr.get_or_create_active(username, persona_id)
+        result = await self.conv_mgr.get_messages(
+            username, persona_id, conv["id"], limit, offset
+        )
+        result["conversation_id"] = conv["id"]
+        return result
 
-    async def clear_history(self, username: str, persona_id: str) -> None:
+    async def clear_history(
+        self, username: str, persona_id: str, conv_id: str = None
+    ) -> None:
         """清空对话历史（不影响记忆）"""
-        path = self.store.messages_path(username, persona_id)
-        await self.store.write_json(path, [])
+        if conv_id:
+            await self.conv_mgr.clear_messages(username, persona_id, conv_id)
+        else:
+            conv = await self.conv_mgr.get_or_create_active(username, persona_id)
+            await self.conv_mgr.clear_messages(username, persona_id, conv["id"])
 
     def _count_rounds(self, messages: list) -> int:
         """计算对话轮数（每对 user+assistant 算一轮）"""
         return sum(1 for m in messages if m.get("role") == "user")
 
-    async def stream_reply(self, username: str, persona_id: str, content: str):
+    async def stream_reply(
+        self, username: str, persona_id: str, content: str,
+        conv_id: str = None
+    ):
         """
         流式回复生成器
         yields: (event_type, data_dict)
@@ -108,21 +116,29 @@ class ChatManager:
             yield ("error", {"message": f"人设不存在: {persona_id}"})
             return
 
-        # 2. 加载用户数据（并行）
+        # 2. 确保有对话
+        if not conv_id:
+            conv = await self.conv_mgr.get_or_create_active(username, persona_id)
+            conv_id = conv["id"]
+
+        # 3. 加载用户数据
         profile = await self.profile_mgr.get_profile(username)
         memory = await self.memory_mgr.get_memory(username, persona_id)
-        msg_path = self.store.messages_path(username, persona_id)
-        history = await self.store.read_json(msg_path, [])
+        history = await self.conv_mgr.get_all_messages(
+            username, persona_id, conv_id
+        )
 
-        # 3. 保存用户消息
+        # 4. 保存用户消息
         user_msg = {
             "role": "user",
             "content": content,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
-        history.append(user_msg)
+        history = await self.conv_mgr.append_message(
+            username, persona_id, conv_id, user_msg
+        )
 
-        # 4. 构建 LLM 消息
+        # 5. 构建 LLM 消息
         system_prompt = self._build_system_prompt(persona, profile, memory)
         llm_messages = [{"role": "system", "content": system_prompt}]
 
@@ -131,22 +147,23 @@ class ChatManager:
         for m in recent_history:
             llm_messages.append({"role": m["role"], "content": m["content"]})
 
-        # 5. 流式调用 LLM
+        # 6. 流式调用 LLM
         full_reply = ""
         async for token in self.llm.chat_stream(llm_messages):
             full_reply += token
             yield ("delta", {"content": token})
 
-        # 6. 保存 AI 回复
+        # 7. 保存 AI 回复
         assistant_msg = {
             "role": "assistant",
             "content": full_reply,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
-        history.append(assistant_msg)
-        await self.store.write_json(msg_path, history)
+        history = await self.conv_mgr.append_message(
+            username, persona_id, conv_id, assistant_msg
+        )
 
-        # 7. 计算轮数，判断是否提取记忆
+        # 8. 计算轮数，判断是否提取记忆
         round_count = self._count_rounds(history)
         memory_extracted = round_count > 0 and round_count % 5 == 0
 
@@ -156,36 +173,9 @@ class ChatManager:
                 username, persona_id, persona_name, round_count
             )
 
-        # 8. 发送完成事件
+        # 9. 发送完成事件
         yield ("done", {
             "round_count": round_count,
             "memory_extracted": memory_extracted,
+            "conversation_id": conv_id,
         })
-
-        # 9. 消息归档（超过200条时）
-        if len(history) > ARCHIVE_THRESHOLD:
-            await self._archive_old_messages(username, persona_id, history)
-
-    async def _archive_old_messages(
-        self, username: str, persona_id: str, history: list
-    ) -> None:
-        """归档旧消息，保留最近100条"""
-        keep = 100
-        archive = history[:-keep]
-        remaining = history[-keep:]
-
-        # 保存归档
-        archive_path = (
-            self.store.user_dir(username)
-            / "messages"
-            / f"{persona_id}_archive_{int(time.time())}.json"
-        )
-        await self.store.write_json(archive_path, archive)
-
-        # 更新主文件
-        msg_path = self.store.messages_path(username, persona_id)
-        await self.store.write_json(msg_path, remaining)
-        logger.info(
-            f"消息归档: {username}/{persona_id}, "
-            f"归档{len(archive)}条，保留{len(remaining)}条"
-        )

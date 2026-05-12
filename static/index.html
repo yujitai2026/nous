@@ -408,6 +408,81 @@ input:focus, textarea:focus, select:focus {
 .send-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
 /* ═══════════════════════════════════════════
+   Conversation History Dropdown
+   ═══════════════════════════════════════════ */
+.conv-dropdown {
+  position: absolute;
+  top: 52px;
+  left: 0;
+  right: 0;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 120;
+  display: none;
+}
+.conv-dropdown.open { display: block; }
+.conv-dropdown-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.conv-dropdown-header h4 {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.conv-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 20px;
+  cursor: pointer;
+  transition: var(--transition);
+  border-bottom: 1px solid rgba(42,42,74,0.3);
+}
+.conv-item:hover { background: var(--surface); }
+.conv-item.active { background: rgba(124,91,245,0.12); border-left: 3px solid var(--accent); }
+.conv-item-info { flex: 1; min-width: 0; }
+.conv-item-title {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-item-meta {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 2px;
+}
+.conv-item-delete {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text3);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+.conv-item-delete:hover { background: var(--danger); color: white; }
+.conv-empty {
+  text-align: center;
+  padding: 24px;
+  color: var(--text3);
+  font-size: 13px;
+}
+
+/* ═══════════════════════════════════════════
    Panel: Profile & Memory (slide-over)
    ═══════════════════════════════════════════ */
 .slide-panel {
@@ -658,13 +733,24 @@ input:focus, textarea:focus, select:focus {
     </div>
 
     <!-- Chat Area -->
-    <div class="chat-area">
+    <div class="chat-area" style="position:relative;">
       <!-- Welcome / Chat Header -->
       <div class="chat-header hidden" id="chat-header">
         <span class="persona-name" id="chat-persona-name"></span>
         <span class="persona-desc" id="chat-persona-desc"></span>
         <div class="spacer"></div>
-        <button class="header-btn" onclick="clearChat()">🗑 清空对话</button>
+        <button class="header-btn" onclick="toggleConvDropdown()" title="历史对话">📋 对话列表</button>
+        <button class="header-btn" onclick="newConversation()" title="新建对话">✨ 新对话</button>
+        <button class="header-btn" onclick="clearChat()" title="清空当前">🗑 清空</button>
+      </div>
+
+      <!-- Conversation History Dropdown -->
+      <div class="conv-dropdown" id="conv-dropdown">
+        <div class="conv-dropdown-header">
+          <h4>📋 历史对话</h4>
+          <button class="btn btn-ghost btn-sm" onclick="toggleConvDropdown()">✕ 关闭</button>
+        </div>
+        <div id="conv-list"></div>
       </div>
 
       <!-- Chat Messages or Welcome -->
@@ -810,6 +896,8 @@ let token = localStorage.getItem('nous_token') || '';
 let username = localStorage.getItem('nous_username') || '';
 let personas = [];
 let currentPersona = null;
+let currentConversationId = null;
+let conversations = [];
 let isRegistering = false;
 let isSending = false;
 let interests = [];
@@ -878,6 +966,9 @@ function logout() {
   document.getElementById('page-app').classList.add('hidden');
   document.getElementById('page-auth').classList.remove('hidden');
   document.getElementById('auth-password').value = '';
+  currentPersona = null;
+  currentConversationId = null;
+  conversations = [];
 }
 
 /* ═══════════════════════════════════════════
@@ -947,12 +1038,124 @@ async function selectPersona(id) {
   document.getElementById('chat-header').classList.remove('hidden');
   document.getElementById('chat-persona-name').textContent = currentPersona.avatar + ' ' + currentPersona.name;
   document.getElementById('chat-persona-desc').textContent = currentPersona.description;
-  // Close sidebar on mobile
+  // Close sidebar on mobile & close conv dropdown
   document.getElementById('persona-sidebar').classList.remove('open');
-  // Load history
-  await loadHistory();
+  document.getElementById('conv-dropdown').classList.remove('open');
+  // Load conversations and auto-select the latest
+  await loadConversations();
   // Focus input
   document.getElementById('chat-input').focus();
+}
+
+/* ═══════════════════════════════════════════
+   Conversations (Multi-conversation)
+   ═══════════════════════════════════════════ */
+async function loadConversations() {
+  if (!currentPersona) return;
+  try {
+    const res = await api(`/api/conversations/${currentPersona.id}`);
+    const data = await res.json();
+    conversations = data.conversations || [];
+  } catch (e) {
+    conversations = [];
+  }
+  // Auto-select latest conversation or show empty
+  if (conversations.length > 0) {
+    await switchConversation(conversations[0].id);
+  } else {
+    // Auto-create first conversation
+    await newConversation(true);
+  }
+}
+
+async function switchConversation(convId) {
+  currentConversationId = convId;
+  document.getElementById('conv-dropdown').classList.remove('open');
+  await loadHistory();
+}
+
+async function newConversation(silent = false) {
+  if (!currentPersona) return;
+  try {
+    const res = await api(`/api/conversations/${currentPersona.id}`, {
+      method: 'POST',
+      body: JSON.stringify({ title: '' })
+    });
+    const conv = await res.json();
+    conversations.unshift(conv);
+    currentConversationId = conv.id;
+    // Clear chat area and show greeting
+    const el = document.getElementById('chat-messages');
+    el.innerHTML = '';
+    appendMessage('assistant', currentPersona.greeting || `你好！我是${currentPersona.name}，有什么想聊的？`, false);
+    scrollToBottom();
+    if (!silent) showToast('已创建新对话 ✨', 'success');
+    document.getElementById('conv-dropdown').classList.remove('open');
+    document.getElementById('chat-input').focus();
+  } catch (e) {
+    showToast('创建对话失败', 'error');
+  }
+}
+
+function toggleConvDropdown() {
+  const dd = document.getElementById('conv-dropdown');
+  const isOpen = dd.classList.toggle('open');
+  if (isOpen) renderConvList();
+}
+
+function renderConvList() {
+  const el = document.getElementById('conv-list');
+  if (conversations.length === 0) {
+    el.innerHTML = '<div class="conv-empty">还没有对话记录</div>';
+    return;
+  }
+  el.innerHTML = conversations.map(c => {
+    const isActive = c.id === currentConversationId;
+    const date = c.updated_at ? formatDate(c.updated_at) : '';
+    const msgCount = c.message_count || 0;
+    return `
+      <div class="conv-item ${isActive ? 'active' : ''}" onclick="switchConversation('${c.id}')">
+        <div class="conv-item-info">
+          <div class="conv-item-title">${escapeHtml(c.title || '新对话')}</div>
+          <div class="conv-item-meta">${date} · ${msgCount}条消息</div>
+        </div>
+        <button class="conv-item-delete" onclick="event.stopPropagation();deleteConversation('${c.id}')" title="删除对话">🗑</button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function deleteConversation(convId) {
+  if (!currentPersona) return;
+  if (!confirm('确定删除这个对话？')) return;
+  try {
+    await api(`/api/conversations/${currentPersona.id}/${convId}`, { method: 'DELETE' });
+    conversations = conversations.filter(c => c.id !== convId);
+    showToast('对话已删除', 'success');
+    if (convId === currentConversationId) {
+      if (conversations.length > 0) {
+        await switchConversation(conversations[0].id);
+      } else {
+        await newConversation(true);
+      }
+    }
+    renderConvList();
+  } catch (e) {
+    showToast('删除失败', 'error');
+  }
+}
+
+function formatDate(isoStr) {
+  try {
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diff = now - d;
+    if (diff < 60000) return '刚刚';
+    if (diff < 3600000) return Math.floor(diff/60000) + '分钟前';
+    if (diff < 86400000) return Math.floor(diff/3600000) + '小时前';
+    if (diff < 604800000) return Math.floor(diff/86400000) + '天前';
+    return (d.getMonth()+1) + '/' + d.getDate();
+  } catch(e) { return ''; }
 }
 
 /* ═══════════════════════════════════════════
@@ -962,9 +1165,13 @@ async function loadHistory() {
   const el = document.getElementById('chat-messages');
   el.innerHTML = '';
   try {
-    const res = await api(`/api/chat/history/${currentPersona.id}?limit=50`);
+    let url = `/api/chat/history/${currentPersona.id}?limit=50`;
+    if (currentConversationId) url += `&conversation_id=${currentConversationId}`;
+    const res = await api(url);
     const data = await res.json();
     const messages = data.messages || data || [];
+    // Update conversation_id if returned
+    if (data.conversation_id) currentConversationId = data.conversation_id;
     messages.forEach(m => appendMessage(m.role, m.content, false));
     if (messages.length === 0) {
       appendMessage('assistant', currentPersona.greeting || `你好！我是${currentPersona.name}，有什么想聊的？`, false);
@@ -1023,13 +1230,19 @@ async function sendMessage() {
   showTyping();
 
   try {
+    const body = {
+      persona_id: currentPersona.id,
+      content
+    };
+    if (currentConversationId) body.conversation_id = currentConversationId;
+
     const res = await fetch(API + '/api/chat/stream', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + token
       },
-      body: JSON.stringify({ persona_id: currentPersona.id, content })
+      body: JSON.stringify(body)
     });
 
     if (!res.ok) {
@@ -1059,6 +1272,11 @@ async function sendMessage() {
             fullText += data.content;
             bubble.innerHTML = formatContent(fullText);
             scrollToBottom();
+          } else if (data.type === 'done') {
+            // Update conversation_id from server
+            if (data.conversation_id) currentConversationId = data.conversation_id;
+            // Refresh conversation list title/count in background
+            refreshConvList();
           } else if (data.type === 'error') {
             fullText += '\n⚠️ ' + data.message;
             bubble.innerHTML = formatContent(fullText);
@@ -1076,14 +1294,25 @@ async function sendMessage() {
   }
 }
 
-async function clearChat() {
+async function refreshConvList() {
+  // Silently refresh conversation list
   if (!currentPersona) return;
-  if (!confirm(`确定清空与「${currentPersona.name}」的对话历史？\n记忆会保留。`)) return;
   try {
-    await api(`/api/chat/history/${currentPersona.id}`, { method: 'DELETE' });
+    const res = await api(`/api/conversations/${currentPersona.id}`);
+    const data = await res.json();
+    conversations = data.conversations || [];
+  } catch(e) {}
+}
+
+async function clearChat() {
+  if (!currentPersona || !currentConversationId) return;
+  if (!confirm(`确定清空当前对话？\n记忆会保留。`)) return;
+  try {
+    await api(`/api/chat/history/${currentPersona.id}?conversation_id=${currentConversationId}`, { method: 'DELETE' });
     document.getElementById('chat-messages').innerHTML = '';
     appendMessage('assistant', `对话已清空，但我还记得关于你的一切 😊`, true);
     showToast('对话已清空', 'success');
+    refreshConvList();
   } catch (e) {
     showToast('清空失败', 'error');
   }
